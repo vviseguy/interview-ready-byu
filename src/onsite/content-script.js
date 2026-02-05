@@ -45,7 +45,7 @@ const userDataKey = "userDataKey";
 const problemsKey = "problemsKey";
 const recentSubmissionsKey = "recentSubmissionsKey";
 
-const PROBLEMS_JSON_URL = "https://raw.githubusercontent.com/vviseguy/interview-ready-byu/feat/github-problem-data/data/problems.json";
+const PROBLEMS_JSON_URL = "https://raw.githubusercontent.com/vviseguy/interview-ready-byu/refs/heads/feat/github-problem-data/data/problems.json";
 const PROBLEM_POLL_MIN_MS = 5 * 60 * 1000;
 const RECENT_POLL_MIN_MS = 5 * 60 * 1000;
 const RECENT_OVERLAP_SECONDS = 6 * 60 * 60; // 6 hours overlap

@@ -12,6 +12,13 @@ const READINESS_TARGET_LOWER_AC_RATE = 40.0;
 const getAcceptedSet = (recentAcceptedSubmissions) => {
   let recentAccepted = new Set();
 
+  if (Array.isArray(recentAcceptedSubmissions?.slugs)) {
+    for (const slug of recentAcceptedSubmissions.slugs) {
+      recentAccepted.add(slug);
+    }
+    return recentAccepted;
+  }
+
   let acList = recentAcceptedSubmissions?.data?.recentAcSubmissionList;
   if (acList?.length > 0) {
     for(let item of acList) {

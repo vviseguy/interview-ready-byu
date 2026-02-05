@@ -49,6 +49,12 @@ function showHideById(id, shouldHide) {
 //////////// Availability checking ///////////////
 function buildRecentAcceptedSet(recentAcceptedSubmissions) {
     const recentAccepted = new Set();
+    if (Array.isArray(recentAcceptedSubmissions?.slugs)) {
+        for (const slug of recentAcceptedSubmissions.slugs) {
+            recentAccepted.add(slug);
+        }
+        return recentAccepted;
+    }
     const acList = recentAcceptedSubmissions?.data?.recentAcSubmissionList;
     if (acList?.length > 0) {
         for (let item of acList) {

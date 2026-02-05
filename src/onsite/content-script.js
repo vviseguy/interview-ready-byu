@@ -45,6 +45,31 @@ const userDataKey = "userDataKey";
 const problemsKey = "problemsKey";
 const recentSubmissionsKey = "recentSubmissionsKey";
 
+const PROBLEMS_JSON_URL = "https://raw.githubusercontent.com/vviseguy/interview-ready-byu/feat/github-problem-data/data/problems.json";
+const PROBLEM_POLL_MIN_MS = 5 * 60 * 1000;
+const RECENT_POLL_MIN_MS = 5 * 60 * 1000;
+const RECENT_OVERLAP_SECONDS = 6 * 60 * 60; // 6 hours overlap
+
+const getRecentAcceptedSet = (recentAcceptedSubmissions) => {
+  const recentAccepted = new Set();
+
+  if (Array.isArray(recentAcceptedSubmissions?.slugs)) {
+    for (const slug of recentAcceptedSubmissions.slugs) {
+      recentAccepted.add(slug);
+    }
+    return recentAccepted;
+  }
+
+  const acList = recentAcceptedSubmissions?.data?.recentAcSubmissionList;
+  if (acList?.length > 0) {
+    for (const item of acList) {
+      recentAccepted.add(item.titleSlug);
+    }
+  }
+
+  return recentAccepted;
+};
+
 /////////////////////////// END COPIES ///////////////////////////
 
 
@@ -73,29 +98,78 @@ async function updateRecentAcceptedSubmissions() {
     return;
   }
 
+  const oldValue = (await chrome.storage.local.get([recentSubmissionsKey])).recentSubmissionsKey;
+  const lastUpdate = oldValue?.timeStamp ?? 0;
+  if (Date.now() - lastUpdate < RECENT_POLL_MIN_MS) {
+    delog("Recent accepts update skipped (dedup interval)." );
+    return;
+  }
+
   const result = await queryData(JSON.stringify({"query":"\n    query recentAcSubmissions($username: String!, $limit: Int!) {\n  recentAcSubmissionList(username: $username, limit: $limit) {\n    id\n    title\n    titleSlug\n    timestamp\n  }\n}\n    ","variables":{"username":username,"limit":15},"operationName":"recentAcSubmissions"}));
   let stringValue = JSON.stringify(result);
-  const oldValue = (await chrome.storage.local.get([recentSubmissionsKey])).recentSubmissionsKey;
   delog("Comparing string values");
   delog(stringValue);
   delog(oldValue?.stringValue);
-  if (oldValue?.stringValue != stringValue) {
-    result.timeStamp = Date.now();
-    result.stringValue = stringValue;
-    chrome.storage.local.set({recentSubmissionsKey: result});
-    delog("Setting...." + recentSubmissionsKey);
-    delog(result);
-    delog(".....");
-  } 
-  else {
-    delog("nothing has changed, not updating...")
+  const existingAccepted = getRecentAcceptedSet(oldValue);
+  const incoming = result?.data?.recentAcSubmissionList ?? [];
+  const lastAcceptedTimestamp = oldValue?.lastAcceptedTimestamp ?? 0;
+  const threshold = Math.max(0, lastAcceptedTimestamp - RECENT_OVERLAP_SECONDS);
+
+  for (const item of incoming) {
+    const itemTimestamp = Number(item.timestamp) || 0;
+    if (itemTimestamp >= threshold) {
+      existingAccepted.add(item.titleSlug);
+    }
   }
+
+  const slugs = Array.from(existingAccepted);
+  const newMaxTimestamp = incoming.reduce((max, item) => {
+    const ts = Number(item.timestamp) || 0;
+    return ts > max ? ts : max;
+  }, lastAcceptedTimestamp);
+
+  const oldSlugs = Array.isArray(oldValue?.slugs) ? oldValue.slugs.slice().sort() : [];
+  const newSlugs = slugs.slice().sort();
+
+  if (oldValue?.stringValue == stringValue && JSON.stringify(oldSlugs) === JSON.stringify(newSlugs)) {
+    delog("nothing has changed, not updating...")
+    return;
+  }
+
+  result.timeStamp = Date.now();
+  result.stringValue = stringValue;
+  result.slugs = slugs;
+  result.lastAcceptedTimestamp = newMaxTimestamp;
+  chrome.storage.local.set({recentSubmissionsKey: result});
+  delog("Setting...." + recentSubmissionsKey);
+  delog(result);
+  delog(".....");
 }
 
 
 async function updateAllProblems() {
-  const result = await queryData("{\"query\":\"query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $filters: QuestionListFilterInput) {problemsetQuestionList: questionList(categorySlug: $categorySlug limit: $limit skip: $skip filters: $filters) {total: totalNum questions: data {acRate difficulty frontendQuestionId: questionFrontendId isFavor paidOnly: isPaidOnly status title titleSlug topicTags {name id slug} hasSolution hasVideoSolution}}}\",\"variables\":{\"categorySlug\":\"\",\"skip\":0,\"limit\":5000,\"filters\":{}}}");
+  const oldValue = (await chrome.storage.local.get([problemsKey])).problemsKey;
+  const lastUpdate = oldValue?.timeStamp ?? 0;
+  if (Date.now() - lastUpdate < PROBLEM_POLL_MIN_MS) {
+    delog("Problems update skipped (dedup interval)." );
+    return;
+  }
+
+  const response = await fetch(PROBLEMS_JSON_URL, { cache: "no-store" });
+  if (!response.ok) {
+    delog("Failed to fetch problems JSON from repo.");
+    return;
+  }
+
+  const result = await response.json();
+  const stringValue = JSON.stringify(result);
+  if (oldValue?.stringValue == stringValue) {
+    delog("Problems JSON unchanged; not updating.");
+    return;
+  }
+
   result.timeStamp = Date.now();
+  result.stringValue = stringValue;
   chrome.storage.local.set({problemsKey: result});
   delog("Setting...." + problemsKey);
   delog(result);

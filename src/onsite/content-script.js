@@ -46,29 +46,7 @@ const problemsKey = "problemsKey";
 const recentSubmissionsKey = "recentSubmissionsKey";
 
 const PROBLEMS_JSON_URL = "https://raw.githubusercontent.com/vviseguy/interview-ready-byu/refs/heads/feat/github-problem-data/data/problems.json";
-const PROBLEM_POLL_MIN_MS = 5 * 60 * 1000;
-const RECENT_POLL_MIN_MS = 5 * 60 * 1000;
-const RECENT_OVERLAP_SECONDS = 6 * 60 * 60; // 6 hours overlap
-
-const getRecentAcceptedSet = (recentAcceptedSubmissions) => {
-  const recentAccepted = new Set();
-
-  if (Array.isArray(recentAcceptedSubmissions?.slugs)) {
-    for (const slug of recentAcceptedSubmissions.slugs) {
-      recentAccepted.add(slug);
-    }
-    return recentAccepted;
-  }
-
-  const acList = recentAcceptedSubmissions?.data?.recentAcSubmissionList;
-  if (acList?.length > 0) {
-    for (const item of acList) {
-      recentAccepted.add(item.titleSlug);
-    }
-  }
-
-  return recentAccepted;
-};
+const PROBLEM_POLL_MIN_MS = 5 * 60 * 1000; // 5 minutes
 
 /////////////////////////// END COPIES ///////////////////////////
 
@@ -98,52 +76,23 @@ async function updateRecentAcceptedSubmissions() {
     return;
   }
 
-  const oldValue = (await chrome.storage.local.get([recentSubmissionsKey])).recentSubmissionsKey;
-  const lastUpdate = oldValue?.timeStamp ?? 0;
-  if (Date.now() - lastUpdate < RECENT_POLL_MIN_MS) {
-    delog("Recent accepts update skipped (dedup interval)." );
-    return;
-  }
-
   const result = await queryData(JSON.stringify({"query":"\n    query recentAcSubmissions($username: String!, $limit: Int!) {\n  recentAcSubmissionList(username: $username, limit: $limit) {\n    id\n    title\n    titleSlug\n    timestamp\n  }\n}\n    ","variables":{"username":username,"limit":15},"operationName":"recentAcSubmissions"}));
   let stringValue = JSON.stringify(result);
+  const oldValue = (await chrome.storage.local.get([recentSubmissionsKey])).recentSubmissionsKey;
   delog("Comparing string values");
   delog(stringValue);
   delog(oldValue?.stringValue);
-  const existingAccepted = getRecentAcceptedSet(oldValue);
-  const incoming = result?.data?.recentAcSubmissionList ?? [];
-  const lastAcceptedTimestamp = oldValue?.lastAcceptedTimestamp ?? 0;
-  const threshold = Math.max(0, lastAcceptedTimestamp - RECENT_OVERLAP_SECONDS);
-
-  for (const item of incoming) {
-    const itemTimestamp = Number(item.timestamp) || 0;
-    if (itemTimestamp >= threshold) {
-      existingAccepted.add(item.titleSlug);
-    }
+  if (oldValue?.stringValue != stringValue) {
+    result.timeStamp = Date.now();
+    result.stringValue = stringValue;
+    chrome.storage.local.set({recentSubmissionsKey: result});
+    delog("Setting...." + recentSubmissionsKey);
+    delog(result);
+    delog(".....");
   }
-
-  const slugs = Array.from(existingAccepted);
-  const newMaxTimestamp = incoming.reduce((max, item) => {
-    const ts = Number(item.timestamp) || 0;
-    return ts > max ? ts : max;
-  }, lastAcceptedTimestamp);
-
-  const oldSlugs = Array.isArray(oldValue?.slugs) ? oldValue.slugs.slice().sort() : [];
-  const newSlugs = slugs.slice().sort();
-
-  if (oldValue?.stringValue == stringValue && JSON.stringify(oldSlugs) === JSON.stringify(newSlugs)) {
+  else {
     delog("nothing has changed, not updating...")
-    return;
   }
-
-  result.timeStamp = Date.now();
-  result.stringValue = stringValue;
-  result.slugs = slugs;
-  result.lastAcceptedTimestamp = newMaxTimestamp;
-  chrome.storage.local.set({recentSubmissionsKey: result});
-  delog("Setting...." + recentSubmissionsKey);
-  delog(result);
-  delog(".....");
 }
 
 
@@ -155,23 +104,56 @@ async function updateAllProblems() {
     return;
   }
 
-  const response = await fetch(PROBLEMS_JSON_URL, { cache: "no-store" });
-  if (!response.ok) {
-    delog("Failed to fetch problems JSON from repo.");
-    return;
+  // Try fetching from GitHub first
+  try {
+    const response = await fetch(PROBLEMS_JSON_URL, { cache: "no-store" });
+    if (response.ok) {
+      const result = await response.json();
+
+      // GitHub catalog has status:null - merge user completion status from LeetCode
+      try {
+        delog("Fetching user status from LeetCode to merge...");
+        const statusResult = await queryData("{\"query\":\"query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $filters: QuestionListFilterInput) {problemsetQuestionList: questionList(categorySlug: $categorySlug limit: $limit skip: $skip filters: $filters) {questions: data {frontendQuestionId: questionFrontendId status}}}\",\"variables\":{\"categorySlug\":\"\",\"skip\":0,\"limit\":5000,\"filters\":{}}}");
+        const statusMap = {};
+        for (const q of statusResult?.data?.problemsetQuestionList?.questions ?? []) {
+          statusMap[q.frontendQuestionId] = q.status;
+        }
+        for (const q of result?.data?.problemsetQuestionList?.questions ?? []) {
+          if (statusMap[q.frontendQuestionId] !== undefined) {
+            q.status = statusMap[q.frontendQuestionId];
+          }
+        }
+        delog(`Merged status for ${Object.keys(statusMap).length} problems`);
+      } catch (statusError) {
+        delog(`Status merge failed: ${statusError.message} - storing without user status`);
+      }
+
+      const stringValue = JSON.stringify(result);
+      if (oldValue?.stringValue == stringValue) {
+        delog("Problems JSON unchanged after merge; not updating.");
+        return;
+      }
+
+      result.timeStamp = Date.now();
+      result.stringValue = stringValue;
+      chrome.storage.local.set({problemsKey: result});
+      delog("Setting from GitHub with merged status...." + problemsKey);
+      delog(result);
+      delog(".....");
+      return;
+    } else {
+      delog(`GitHub fetch returned ${response.status}, falling back to LeetCode API`);
+    }
+  } catch (error) {
+    delog(`GitHub fetch failed: ${error.message}, falling back to LeetCode API`);
   }
 
-  const result = await response.json();
-  const stringValue = JSON.stringify(result);
-  if (oldValue?.stringValue == stringValue) {
-    delog("Problems JSON unchanged; not updating.");
-    return;
-  }
-
+  // Fallback to LeetCode GraphQL API
+  delog("Fetching from LeetCode GraphQL API...");
+  const result = await queryData("{\"query\":\"query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $filters: QuestionListFilterInput) {problemsetQuestionList: questionList(categorySlug: $categorySlug limit: $limit skip: $skip filters: $filters) {total: totalNum questions: data {acRate difficulty frontendQuestionId: questionFrontendId isFavor paidOnly: isPaidOnly status title titleSlug topicTags {name id slug} hasSolution hasVideoSolution}}}\",\"variables\":{\"categorySlug\":\"\",\"skip\":0,\"limit\":5000,\"filters\":{}}}");
   result.timeStamp = Date.now();
-  result.stringValue = stringValue;
   chrome.storage.local.set({problemsKey: result});
-  delog("Setting...." + problemsKey);
+  delog("Setting from LeetCode...." + problemsKey);
   delog(result);
   delog(".....");
 };

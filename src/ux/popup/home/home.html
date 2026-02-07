@@ -14,9 +14,11 @@
         <br>
         <button id="signInToLeetCode">Sign in to LeetCode</button>
       </div>
-      <div id="loading" class="loading-container" hidden="true">
-        <div class='loading-text'>Loading</div>
-        <img class='loading-ani' src='../../images/loading.png'>
+      <div id="loading" class="loading-container">
+        <div class='loading-text' id='loading-status'>Checking sign-in...</div>
+        <div class='loading-bar-track'>
+          <div class='loading-bar-fill' id='loading-bar'></div>
+        </div>
       </div>
       <div id="legend" hidden="true">
         <p><span class="practice-suggested">&#8599;</span> - This is the next suggested problem!</p>

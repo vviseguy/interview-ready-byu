@@ -12,13 +12,6 @@ const READINESS_TARGET_LOWER_AC_RATE = 40.0;
 const getAcceptedSet = (recentAcceptedSubmissions) => {
   let recentAccepted = new Set();
 
-  if (Array.isArray(recentAcceptedSubmissions?.slugs)) {
-    for (const slug of recentAcceptedSubmissions.slugs) {
-      recentAccepted.add(slug);
-    }
-    return recentAccepted;
-  }
-
   let acList = recentAcceptedSubmissions?.data?.recentAcSubmissionList;
   if (acList?.length > 0) {
     for(let item of acList) {
@@ -35,6 +28,11 @@ const getAcceptedSet = (recentAcceptedSubmissions) => {
 export const getReadinessData = traceMethod(function getReadinessData(allProblems, recentAcceptedSubmissions) {
   delog(allProblems);
   delog(recentAcceptedSubmissions);
+
+  if (!allProblems?.data?.problemsetQuestionList?.questions) {
+    delog("No problems data available yet");
+    return {};
+  }
 
   let recentAccepted = getAcceptedSet(recentAcceptedSubmissions);
 
@@ -106,6 +104,10 @@ export const getReadinessData = traceMethod(function getReadinessData(allProblem
  */
 export async function getNextPracticeProblem(topic, target) {
   const allProblems = (await chrome.storage.local.get(["problemsKey"])).problemsKey;
+  if (!allProblems?.data?.problemsetQuestionList?.questions) {
+    delog("No problems data available for practice problem selection");
+    return null;
+  }
   const recentAccepted = getAcceptedSet((await chrome.storage.local.get(["recentSubmissionsKey"])).recentSubmissionsKey);
   const userHasPremium = (await chrome.storage.local.get(["userDataKey"])).userDataKey.isPremium;
   const unsolvedProblemsMediumMoreDifficultThanTarget = []

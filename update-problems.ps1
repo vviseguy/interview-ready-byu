@@ -25,6 +25,7 @@ function Fetch-Batch {
     
     $response = Invoke-WebRequest -Uri $LeetCodeGraphQL `
         -Method Post `
+        -UseBasicParsing `
         -Headers @{ "Content-Type" = "application/json" } `
         -Body $queryBody `
         -ErrorAction Stop
@@ -59,7 +60,7 @@ $result = @{
             questions = $allQuestions
         }
     }
-    generatedAt = (Get-Date -AsUTC).ToString("o")
+    generatedAt = ([datetime]::UtcNow).ToString("o")
 }
 
 # Ensure directory exists

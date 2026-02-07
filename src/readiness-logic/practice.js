@@ -5,13 +5,6 @@ import { randomElementInArray } from "./random.js";
 const getAcceptedSet = (recentAcceptedSubmissions) => {
     let recentAccepted = new Set();
   
-        if (Array.isArray(recentAcceptedSubmissions?.slugs)) {
-            for (const slug of recentAcceptedSubmissions.slugs) {
-                recentAccepted.add(slug);
-            }
-            return recentAccepted;
-        }
-  
     let acList = recentAcceptedSubmissions?.data?.recentAcSubmissionList;
     if (acList?.length > 0) {
       for(let item of acList) {
@@ -24,6 +17,10 @@ const getAcceptedSet = (recentAcceptedSubmissions) => {
 
 export async function getPracticeProblem(practiceType) {
     const allProblems = (await chrome.storage.local.get(["problemsKey"])).problemsKey;
+    if (!allProblems?.data?.problemsetQuestionList?.questions) {
+        delog("No problems data available for practice problem selection");
+        return null;
+    }
     const recentAcceptedData = (await chrome.storage.local.get(["recentSubmissionsKey"])).recentSubmissionsKey;
     const recentAcceptedSet = getAcceptedSet(recentAcceptedData);
 

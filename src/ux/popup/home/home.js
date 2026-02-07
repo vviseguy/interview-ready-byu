@@ -33,6 +33,13 @@ function hideProgress() {
     showHideById("loading", true);
 }
 
+function setLoadingProgress(percent, message) {
+    const bar = document.getElementById("loading-bar");
+    const status = document.getElementById("loading-status");
+    if (bar) bar.style.width = percent + "%";
+    if (status) status.textContent = message;
+}
+
 function showLegend() {
     showHideById("legend", false);
 }
@@ -49,12 +56,6 @@ function showHideById(id, shouldHide) {
 //////////// Availability checking ///////////////
 function buildRecentAcceptedSet(recentAcceptedSubmissions) {
     const recentAccepted = new Set();
-    if (Array.isArray(recentAcceptedSubmissions?.slugs)) {
-        for (const slug of recentAcceptedSubmissions.slugs) {
-            recentAccepted.add(slug);
-        }
-        return recentAccepted;
-    }
     const acList = recentAcceptedSubmissions?.data?.recentAcSubmissionList;
     if (acList?.length > 0) {
         for (let item of acList) {
@@ -71,6 +72,10 @@ async function computeTopicAvailability() {
 
     const recentAccepted = buildRecentAcceptedSet(recentAcceptedSubmissions);
     const questions = allProblems?.data?.problemsetQuestionList?.questions;
+
+    delog("computeTopicAvailability - allProblems:", allProblems);
+    delog("computeTopicAvailability - questions count:", questions?.length);
+    delog("computeTopicAvailability - userHasPremium:", userHasPremium);
 
     const availability = {};
     
@@ -181,18 +186,22 @@ render();
 async function render() {
     delog("################");
     delog("render!!!");
+    setLoadingProgress(10, "Checking sign-in...");
     let userData = (await chrome.storage.local.get(["userDataKey"])).userDataKey;
     delog(userData);
     let isSignedIn = userData.isSignedIn;
     delog(`isSignedIn==${isSignedIn}`);
 
     if (!isSignedIn) {
+        hideProgress();
         showColdStart();
         setTimeout(render, 1000);
         return;
     } else {
         hideColdStart();
     }
+
+    setLoadingProgress(30, "Loading problems...");
 
     // Signal that we opened the modal and got passed the sign-in
     delog("setting modal opened!");
@@ -205,18 +214,22 @@ async function render() {
     readiness.innerHTML = '';
 
     if(!allProblemsData) {
+        setLoadingProgress(40, "Waiting for problem data...");
         showProgress();
         setTimeout(render, 1000);
         return;
     }
 
-    hideProgress();
+    setLoadingProgress(60, "Computing readiness...");
 
     // Compute availability before rendering
     const availability = await computeTopicAvailability();
     const bigButtonStates = await computeBigButtonStates();
     
     let topicData = getReadinessData(allProblemsData, recentAcceptedSubmissions);
+
+    setLoadingProgress(100, "Done!");
+    hideProgress();
 
     // Render big buttons
     readiness.innerHTML = `<button class='clickable bigpractice' practice-type='suggested'>${bigButtonStates.suggested.label}</button>`;

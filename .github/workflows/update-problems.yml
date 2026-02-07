@@ -1,0 +1,38 @@
+name: Update problems.json
+
+on:
+  schedule:
+    - cron: "0 3 * * 0" # weekly, Sundays 03:00 UTC
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  update-problems:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch latest problems
+        shell: pwsh
+        run: .\update-problems.ps1
+
+      - name: Check for changes
+        id: git_status
+        shell: pwsh
+        run: |
+          if (git status --porcelain | Select-String "data/problems.json") {
+            "changed=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          } else {
+            "changed=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          }
+
+      - name: Commit and push
+        if: steps.git_status.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/problems.json
+          git commit -m "Update problems.json"
+          git push
